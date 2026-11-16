@@ -112,8 +112,34 @@ class RelayHandler(BaseHTTPRequestHandler):
         print(f"{self.address_string()} - {format % args}", flush=True)
 
     def do_GET(self) -> None:
-        if self.path.split("?")[0] == "/health":
+        path = self.path.split("?")[0]
+        if path == "/health":
             self._write_json(200, {"status": "ok"})
+            return
+        if path == "/check":
+            if not verify_token(self.headers):
+                self._write_json(401, {"ok": False, "error": "Unauthorized"})
+                return
+            import socket, ssl, urllib.parse
+            qs = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+            host = (qs.get("host") or [""])[0].strip()
+            port = int((qs.get("port") or ["443"])[0])
+            if not host:
+                self._write_json(400, {"ok": False, "error": "host required"})
+                return
+            tcp_ok, tls_ok = False, False
+            try:
+                with socket.create_connection((host, port), timeout=4):
+                    tcp_ok = True
+                if port == 443:
+                    ctx = ssl.create_default_context()
+                    with ctx.wrap_socket(socket.socket(), server_hostname=host) as s:
+                        s.settimeout(4)
+                        s.connect((host, port))
+                        tls_ok = True
+            except Exception:
+                pass
+            self._write_json(200, {"ok": True, "host": host, "port": port, "tcp": tcp_ok, "tls": tls_ok})
             return
         self._write_json(404, {"ok": False, "error": "Not found"})
 
