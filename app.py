@@ -141,6 +141,24 @@ class RelayHandler(BaseHTTPRequestHandler):
                 pass
             self._write_json(200, {"ok": True, "host": host, "port": port, "tcp": tcp_ok, "tls": tls_ok})
             return
+        if path == "/fetch":
+            if not verify_token(self.headers):
+                self._write_json(401, {"ok": False, "error": "Unauthorized"})
+                return
+            import urllib.parse, urllib.request
+            qs = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+            url = (qs.get("url") or [""])[0].strip()
+            if not url.startswith(("http://", "https://")):
+                self._write_json(400, {"ok": False, "error": "valid http(s) url required"})
+                return
+            try:
+                req = urllib.request.Request(url, headers={"User-Agent": "tg-notify-hub/1.0"})
+                with urllib.request.urlopen(req, timeout=10) as r:
+                    body = r.read(32768).decode("utf-8", errors="replace")
+                    self._write_json(200, {"ok": True, "status": r.status, "body": body})
+            except Exception as e:
+                self._write_json(502, {"ok": False, "error": str(e)})
+            return
         self._write_json(404, {"ok": False, "error": "Not found"})
 
     def do_POST(self) -> None:
